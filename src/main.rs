@@ -1,34 +1,40 @@
+use openssl::symm::{decrypt, Cipher};
 use read_input::prelude::*;
-use base64::{decode};
-use openssl::symm::{Cipher, decrypt};
 
+const LOGO: &str = include_str!("../logo.txt");
 
 fn main() {
-    println!(r#" ______     ______   ______      _____     ______     ______     ______     __  __     ______   ______  "#);
-    println!(r#"/\  ___\   /\  == \ /\  == \    /\  __-.  /\  ___\   /\  ___\   /\  == \   /\ \_\ \   /\  == \ /\__  _\ "#);
-    println!(r#"\ \ \__ \  \ \  _-/ \ \  _-/    \ \ \/\ \ \ \  __\   \ \ \____  \ \  __<   \ \____ \  \ \  _-/ \/_/\ \/ "#);
-    println!(r#" \ \_____\  \ \_\    \ \_\       \ \____-  \ \_____\  \ \_____\  \ \_\ \_\  \/\_____\  \ \_\      \ \_\ "#);
-    println!(r#"  \/_____/   \/_/     \/_/        \/____/   \/_____/   \/_____/   \/_/ /_/   \/_____/   \/_/       \/_/ "#);
-    println!("\n");
-    print!("Input the cpassword: ");
-    let input = input::<String>().get(); 
-    gpp_decrypt(input);
+    println!("{}", LOGO);
+
+    let data: Vec<u8> = loop {
+        print!("\nInput the cpassword: ");
+        let mut input: String = input().get();
+
+        // pad the string
+        input.extend(
+            // creates an iterator that returns a '=' per iteration
+            (0..4 - (input.len() % 4)).map(|_| '='));
+
+        // decode it, if it fails print a friendly error message
+        match base64::decode(input) {
+            Ok(data) => break data,
+            _ => println!("error: input is not valid base64"),
+        }
+    };
+
+    match gpp_decrypt(&data) {
+        Some(output) => println!("result: {}", output),
+        None => println!("error: failed to decrypt {:?}", &data)
+    }
 }
 
-fn gpp_decrypt(input: String) {
-    let mut encrypted_data = input;
-    let repeat_times = 4 - (encrypted_data.len() % 4);
-    let padding: String = "=".to_string().repeat(repeat_times); 
-    let _ = encrypted_data.push_str(&padding); 
-    let decoded = decode(encrypted_data);
-    let key = b"\x4e\x99\x06\xe8\xfc\xb6\x6c\xc9\xfa\xf4\x93\x10\x62\x0f\xfe\xe8\xf4\x96\xe8\x06\xcc\x05\x79\x90\x20\x9b\x09\xa4\x33\xb6\x6c\x1b";
-    let aes = Cipher::aes_256_cbc();
-    let iv= b"\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00"; 
-    let decrypted  = decrypt(aes, key, Some(iv), &decoded.unwrap());
-    let s = match String::from_utf8(decrypted.unwrap()) { //convert to readable text
-        Ok(v) => v,
-        Err(_e) => panic!("Invalid UTF-8 Sequence"),
-    };
-    println!("Result: {}", s);
+const INIT_V: &[u8; 16] = b"\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00";
+const KEY: &[u8; 32] = b"\x4e\x99\x06\xe8\xfc\xb6\x6c\xc9\xfa\xf4\x93\x10\x62\x0f\xfe\xe8\xf4\x96\xe8\x06\xcc\x05\x79\x90\x20\x9b\x09\xa4\x33\xb6\x6c\x1b";
 
+/// Decrypts the provided Group Policy Preference cpassword. Returns `None` if
+/// decryption fails.
+fn gpp_decrypt(data: &[u8]) -> Option<String> {
+    decrypt(Cipher::aes_256_cbc(), KEY, Some(INIT_V), data)
+        .ok()
+        .and_then(|dec| String::from_utf8(dec).ok())
 }
